@@ -8,8 +8,7 @@ def meta_incremental_train(model: torch.nn.Module, optimizer, data_iterator, epo
     :param model: torch.nn.module, the model to train. It must have loss(self, window_dict) method,
     where window_dict contains all input tensors, created by data_iterator and there is loss tensor returned
     :param optimizer: torch.optimizer.Optimizer, the optimizer object of the model
-    :param data_iterator: object, with iter(index=i, window_size=w) method that returns the iterator containing windows
-    between [i-w, i-1] or returns the i-th window during i-th iteration
+    :param data_iterator:
     :param epoch_num: positive int, the number of training epochs
     :param window_limit:
     :return: trained model
@@ -21,7 +20,7 @@ def meta_incremental_train(model: torch.nn.Module, optimizer, data_iterator, epo
     for i in range(epoch_num):
         model.zero_grad()
 
-        for feed_dict in data_iterator.iter(index=i, window_size=0):
+        for feed_dict in data_iterator.iter(i, 0):
             previous_param = model.state_dict().copy()
             _temporary_update(model, feed_dict, optimizer)
 
@@ -31,9 +30,11 @@ def meta_incremental_train(model: torch.nn.Module, optimizer, data_iterator, epo
                 """
                 model.zero_grad()
                 total_loss = 0
-                for window_dict in data_iterator.iter(index=i, window_size=window_limit):
+                for window_dict in data_iterator.iter(i, window_limit):
                     loss = model.loss(window_dict)
+                    loss.backward()
                     total_loss += loss.item()
+
                 return total_loss
 
             model.load_state_dict(previous_param)
