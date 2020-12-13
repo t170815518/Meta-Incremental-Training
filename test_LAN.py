@@ -16,8 +16,8 @@ from meta_incremental_training.meta_incremental_train import meta_incremental_tr
 # inherit IncrementalIterator to use meta-incremental training
 class MetaIncrementalDataset(DataSet, IncrementalIterator):
     def __init__(self, config, logger, win_size):
-        DataSet.__init__(config, logger)
-        IncrementalIterator.__init__(win_size)
+        DataSet.__init__(self, config, logger)
+        IncrementalIterator.__init__(self, win_size)
 
 
 logger = logging.getLogger()
@@ -31,8 +31,9 @@ def main():
 def parse_arguments():
     """ Parses arguments from CLI. """
     parser = argparse.ArgumentParser(description="Configuration for LAN model")
-    parser.add_argument('--data_dir', '-D', type=str, default="data/wiki-300")
-    parser.add_argument('--save_dir', '-S', type=str, default="data/wiki-300")
+    parser.add_argument('--data_dir', '-D', type=str, default="LAN/data/wiki-300")
+    parser.add_argument('--save_dir', '-S', type=str, default="LAN/data/wiki-300")
+    parser.add_argument('--log_file_path', type=str, default="train.log")
     # model
     parser.add_argument('--use_relation', type=int, default=1)
     parser.add_argument('--embedding_dim', '-e', type=int, default=100)
@@ -53,6 +54,7 @@ def parse_arguments():
     parser.add_argument('--epoch_per_checkpoint', type=int, default=50)
     # meta-incremental training option
     parser.add_argument('--window_size', type=int, default=-1)
+    parser.add_argument('--threshold', type=int, default=-1)
     # gpu option
     parser.add_argument('--gpu_fraction', type=float, default=0.2)
     parser.add_argument('--gpu_device', type=str, default='0')
@@ -180,13 +182,18 @@ def run_meta_incre_training(config):
     model.to(config.device)
     optim = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
-    trained_model = meta_incremental_train(model, optim, dataset, config.num_epoch, config.batch_size, config.window_size)
+    for i in range(config.num_epoch):
+        logger.info("Epoch {} starts".format(i))
+        trained_model = meta_incremental_train(model, optim, dataset, i, config, logger,
+                                               config.batch_size, config.window_size, config.epoch_per_checkpoint)
+
+        torch.save(model.state_dict(), "model_trained.pt")
 
 
 def set_up_logger(config):
     checkpoint_dir = config.save_dir
     logger.setLevel(logging.INFO)
-    handler = logging.FileHandler(checkpoint_dir + 'train.log', 'w+')
+    handler = logging.FileHandler(config.log_file_path, 'w+')
     handler.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s: %(message)s', datefmt='%Y/%m/%d %H:%M:%S')
     handler.setFormatter(formatter)

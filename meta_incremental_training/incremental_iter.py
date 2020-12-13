@@ -27,8 +27,10 @@ class IncrementalIterator:
             start_index = index * self.size_per_win
             end_index = start_index + self.size_per_win
             return process_function(self.data_pool[start_index: end_index])
-        elif window_range < 0:
-            raise ValueError("window_range should be non-negative integer.")
+        elif window_range == -1:
+            window_range = index
+        else:
+            raise ValueError("window_range should be non-negative integer or -1.")
 
         for i in range(max(index - window_range, 0), index - 1):
             start_index = i * self.size_per_win
@@ -44,9 +46,11 @@ class IncrementalIterator:
         :param index: i
         """
         if not window_range or window_range == 0:
-            return self.windows[index]
-        elif window_range < 0:
-            raise ValueError("window_range should be non-negative integer.")
+            return self.windows[index]  # to return an iterable
+        elif window_range == -1:
+            window_range = index
+        else:
+            raise ValueError("window_range should be non-negative integer or -1.")
 
-        for i in range(max(index - window_range, 0), index - 1):
+        for i in range(max(index - window_range, 0), index):
             yield self.windows[i]

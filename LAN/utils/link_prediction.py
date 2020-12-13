@@ -120,4 +120,4 @@ def run_link_prediction(args, model, dataset, epoch, logger, is_test=False):
     print(performance_info_tail)
     logger.info(performance_info_tail)
 
-    return min_rank_head
+    return rank_head_mean

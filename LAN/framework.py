@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model.aggregator import Attention
-from model.score_function import TransE
+from LAN.aggregator import Attention
+from LAN.score_function import TransE
 
 
 class LAN(torch.nn.Module):
@@ -34,7 +34,10 @@ class LAN(torch.nn.Module):
 
     def loss(self, feed_dict):
         for key, value in feed_dict.items():
-            feed_dict[key] = torch.from_numpy(value).to(device=torch.cuda.current_device())
+            try:
+                feed_dict[key] = torch.from_numpy(value).to(device=torch.cuda.current_device())
+            except TypeError:
+                pass
 
         neighbor_weight_ph = feed_dict['neighbor_weight_ph']
         neighbor_weight_pt = feed_dict['neighbor_weight_pt']

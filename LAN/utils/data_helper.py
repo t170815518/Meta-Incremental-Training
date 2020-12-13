@@ -5,9 +5,8 @@ from collections import defaultdict
 from meta_incremental_training.incremental_iter import IncrementalIterator
 
 
-class DataSet(IncrementalIterator):
+class DataSet:
     def __init__(self, args, logger):
-        super(DataSet, self).__init__(args.window_size)
         self.data_dir = args.data_dir
         self.max_neighbor = args.max_neighbor
         self.corrupt_mode = args.corrupt_mode
@@ -40,7 +39,7 @@ class DataSet(IncrementalIterator):
 
         self.graph_train, self.weight_graph = self.sample_neighbor(graph_train)
 
-        triplets_test = self.doc_to_tensor(test_path)
+        triplets_test = self.doc_to_tensor("test")
 
         self.task = 'link_prediction'
         # construct answer poor for filter results
@@ -260,8 +259,23 @@ class DataSet(IncrementalIterator):
                 batch_weight_nt = query_weight_nt[np.arange(real_batch_num).repeat(self.max_neighbor), neighbor_tail_neg[:, :, 0].reshape(-1)].reshape(real_batch_num, self.max_neighbor, 1)
                 batch_weight_nh = np.concatenate((batch_weight_nh, neighbor_imply_nh), axis=2)
                 batch_weight_nt = np.concatenate((batch_weight_nt, neighbor_imply_nt), axis=2)
-                yield [batch_weight_ph, batch_weight_pt, batch_weight_nh, batch_weight_nt,
-                    batch_positive, batch_negative, batch_relation_ph, batch_relation_pt, batch_relation_nh, batch_relation_nt, neighbor_head_pos, neighbor_tail_pos, neighbor_head_neg, neighbor_tail_neg]
+                feed_dict = {
+                    "neighbor_head_pos": neighbor_head_pos,
+                    "neighbor_tail_pos": neighbor_tail_pos,
+                    "neighbor_head_neg": neighbor_head_neg,
+                    "neighbor_tail_neg": neighbor_tail_neg,
+                    "input_relation_ph": batch_relation_ph,
+                    "input_relation_pt": batch_relation_pt,
+                    "input_relation_nh": batch_relation_nh,
+                    "input_relation_nt": batch_relation_nt,
+                    "input_triplet_pos": batch_positive,
+                    "input_triplet_neg": batch_negative,
+                    "neighbor_weight_ph": batch_weight_ph,
+                    "neighbor_weight_pt": batch_weight_pt,
+                    "neighbor_weight_nh": batch_weight_nh,
+                    "neighbor_weight_nt": batch_weight_nt
+                }
+                yield feed_dict
             else:
                 yield [batch_weight_ph, batch_weight_pt,
                     batch_positive, batch_relation_pt, neighbor_head_pos, neighbor_tail_pos]
@@ -303,7 +317,7 @@ class DataSet(IncrementalIterator):
             return np.asarray(batch_predict_tail), np.asarray(batch_predict_head)
 
     def __read_train_file(self, cnt_entity, cnt_relation, data_path_train, train_entity, triplet_train):
-        with open(data_path_train, 'r') as fr:
+        with open("train", 'r') as fr:
             for line in fr:
                 line = line.strip().split('\t')
                 line = [int(_id) for _id in line]
