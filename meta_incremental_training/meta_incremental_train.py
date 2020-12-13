@@ -2,9 +2,10 @@ import torch
 
 
 def meta_incremental_train(model: torch.nn.Module, optimizer, data_iterator, epoch_num: int = 100,
-                           window_limit: int = -1) -> torch.nn.Module:
+                           batch_size: int = 1024, window_limit: int = -1) -> torch.nn.Module:
     """
     The model will be sent to GPU by default.
+    :param batch_size: size of the batch/window
     :param model: torch.nn.module, the model to train. It must have loss(self, window_dict) method,
     where window_dict contains all input tensors, created by data_iterator and there is loss tensor returned
     :param optimizer: torch.optimizer.Optimizer, the optimizer object of the model
@@ -17,10 +18,12 @@ def meta_incremental_train(model: torch.nn.Module, optimizer, data_iterator, epo
     if epoch_num <= 0:
         raise ValueError("epoch_num should be positive integer.")
 
+    new_data_generator = data_iterator.batch_iter_epoch(data_iterator.triplets_train, batch_size=batch_size)
     for i in range(epoch_num):
+        data_iterator.windows.append(next(new_data_generator))  # add new data during each iteration
         model.zero_grad()
 
-        for feed_dict in data_iterator.iter(i, 0):
+        for feed_dict in data_iterator.iter_from_list(i, 0):
             previous_param = model.state_dict().copy()
             _temporary_update(model, feed_dict, optimizer)
 
@@ -30,7 +33,7 @@ def meta_incremental_train(model: torch.nn.Module, optimizer, data_iterator, epo
                 """
                 model.zero_grad()
                 total_loss = 0
-                for window_dict in data_iterator.iter(i, window_limit):
+                for window_dict in data_iterator.iter_from_list(i, window_limit, ):
                     loss = model.loss(window_dict)
                     loss.backward()
                     total_loss += loss.item()
