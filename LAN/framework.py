@@ -11,13 +11,8 @@ class LAN(torch.nn.Module):
 
         self.max_neighbor = args.max_neighbor
         self.embedding_dim = args.embedding_dim
-        self.learning_rate = args.learning_rate
-        self.aggregate_type = args.aggregate_type
-        self.score_function = args.score_function
-        self.loss_function = args.loss_function
         self.use_relation = args.use_relation
         self.margin = args.margin
-        self.weight_decay = args.weight_decay
 
         self.num_entity = num_entity
         self.num_relation = num_relation
