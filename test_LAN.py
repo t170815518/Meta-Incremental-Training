@@ -31,8 +31,8 @@ def main():
 def parse_arguments():
     """ Parses arguments from CLI. """
     parser = argparse.ArgumentParser(description="Configuration for LAN model")
-    parser.add_argument('--data_dir', '-D', type=str, default="LAN/data/wiki-300")
-    parser.add_argument('--save_dir', '-S', type=str, default="LAN/data/wiki-300")
+    parser.add_argument('--data_dir', '-D', type=str, default="")
+    parser.add_argument('--save_dir', '-S', type=str, default="")
     parser.add_argument('--log_file_path', type=str, default="train.log")
     # model
     parser.add_argument('--use_relation', type=int, default=1)
@@ -45,16 +45,17 @@ def parse_arguments():
     parser.add_argument('--margin', type=float, default='1.0')
     parser.add_argument('--corrupt_mode', type=str, default='both')
     # training
-    parser.add_argument('--learning_rate', type=float, default=1e-3)
+    parser.add_argument('--learning_rate', type=float, default=0.003)
     parser.add_argument('--num_epoch', type=int, default=1000)
     parser.add_argument('--weight_decay', '-w', type=float, default=0.0)
     parser.add_argument('--batch_size', type=int, default=1024)
     parser.add_argument('--evaluate_size', type=int, default=250)
     parser.add_argument('--steps_per_display', type=int, default=100)
-    parser.add_argument('--epoch_per_checkpoint', type=int, default=50)
+    parser.add_argument('--epoch_per_checkpoint', type=int, default=10)
     # meta-incremental training option
     parser.add_argument('--window_size', type=int, default=-1)
     parser.add_argument('--threshold', type=int, default=-1)
+    parser.add_argument('--inner_learning_rate', type=float, default=0.1)
     # gpu option
     parser.add_argument('--gpu_fraction', type=float, default=0.2)
     parser.add_argument('--gpu_device', type=str, default='0')
@@ -178,7 +179,8 @@ def run_meta_incre_training(config):
 
     # training initialization
     model = LAN(config, dataset.num_training_entity, dataset.num_relation)
-    save_path = os.path.join(config.save_dir, "train_model.pt")
+    if os.path.exists("model_trained.pt"):
+        model.load_state_dict(torch.load("model_trained.pt"))
     model.to(config.device)
     optim = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
@@ -187,7 +189,11 @@ def run_meta_incre_training(config):
         trained_model = meta_incremental_train(model, optim, dataset, i, config, logger,
                                                config.batch_size, config.window_size, config.epoch_per_checkpoint)
 
-        torch.save(model.state_dict(), "model_trained.pt")
+        if i % config.epoch_per_checkpoint == 0:
+            torch.save(trained_model.state_dict(), "model_trained.pt")
+            model.eval()
+            with torch.no_grad():
+                mr = run_link_prediction(config, model, dataset, i, logger)
 
 
 def set_up_logger(config):

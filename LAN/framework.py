@@ -57,15 +57,11 @@ class LAN(torch.nn.Module):
         encoder = self.encoder
         decoder = self.decoder
 
-        head_pos_embedded, _ = self.encode(encoder, neighbor_head_pos, input_relation_ph,
-                                           neighbor_weight_ph)
-        tail_pos_embedded, _ = self.encode(encoder, neighbor_tail_pos, input_relation_pt,
-                                           neighbor_weight_pt)
+        head_pos_embedded, _ = self.forward(encoder, neighbor_head_pos, input_relation_ph, neighbor_weight_ph)
+        tail_pos_embedded, _ = self.forward(encoder, neighbor_tail_pos, input_relation_pt, neighbor_weight_pt)
 
-        head_neg_embedded, _ = self.encode(encoder, neighbor_head_neg, input_relation_nh,
-                                           neighbor_weight_nh)
-        tail_neg_embedded, _ = self.encode(encoder, neighbor_tail_neg, input_relation_nt,
-                                           neighbor_weight_nt)
+        head_neg_embedded, _ = self.forward(encoder, neighbor_head_neg, input_relation_nh, neighbor_weight_nh)
+        tail_neg_embedded, _ = self.forward(encoder, neighbor_tail_neg, input_relation_nt, neighbor_weight_nt)
 
         emb_relation_pos_out = self.relation_embedding_out(input_relation_ph)
         emb_relation_neg_out = self.relation_embedding_out(input_relation_nh)
@@ -89,7 +85,7 @@ class LAN(torch.nn.Module):
 
         return loss
 
-    def encode(self, encoder, neighbor_ids, query_relation, weight):
+    def forward(self, encoder, neighbor_ids, query_relation, weight):
         """ TODO: check neighbor_ids content """
         neighbor_embedded = self.entity_embedding(neighbor_ids[:, :, 1])
         if self.use_relation == 1:
@@ -112,10 +108,8 @@ class LAN(torch.nn.Module):
         neighbor_weight_ph = feed_dict['neighbor_weight_ph']
         neighbor_weight_pt = feed_dict['neighbor_weight_pt']
 
-        head_pos_embedded, _ = self.encode(self.encoder, neighbor_head_pos, input_relation_ph,
-                                           neighbor_weight_ph)
-        tail_pos_embedded, _ = self.encode(self.encoder, neighbor_tail_pos, input_relation_pt,
-                                           neighbor_weight_pt)
+        head_pos_embedded, _ = self.forward(self.encoder, neighbor_head_pos, input_relation_ph, neighbor_weight_ph)
+        tail_pos_embedded, _ = self.forward(self.encoder, neighbor_tail_pos, input_relation_pt, neighbor_weight_pt)
 
         emb_relation_pos_out = self.relation_embedding_out(input_relation_ph)
         return self.decode(self.decoder, head_pos_embedded, tail_pos_embedded, emb_relation_pos_out)
