@@ -25,14 +25,17 @@ logger = logging.getLogger()
 
 def main():
     config = parse_arguments()
-    run_meta_incre_training(config)
+    if config.training_method == "meta_incremental":
+        run_meta_incre_training(config)
+    elif config.training_method == "batch":
+        run_batch_training(config)
 
 
 def parse_arguments():
     """ Parses arguments from CLI. """
     parser = argparse.ArgumentParser(description="Configuration for LAN model")
-    parser.add_argument('--data_dir', '-D', type=str, default="")
-    parser.add_argument('--save_dir', '-S', type=str, default="")
+    parser.add_argument('--data_dir', '-D', type=str, default="data/FB15k-237")
+    parser.add_argument('--save_dir', '-S', type=str, default="data/FB15k-237")
     parser.add_argument('--log_file_path', type=str, default="train.log")
     # model
     parser.add_argument('--use_relation', type=int, default=1)
@@ -45,7 +48,8 @@ def parse_arguments():
     parser.add_argument('--margin', type=float, default='1.0')
     parser.add_argument('--corrupt_mode', type=str, default='both')
     # training
-    parser.add_argument('--learning_rate', type=float, default=0.003)
+    parser.add_argument('--training_method', type=str, choices=["batch", "meta_incremental"], default="meta_incremental")
+    parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--num_epoch', type=int, default=1000)
     parser.add_argument('--weight_decay', '-w', type=float, default=0.0)
     parser.add_argument('--batch_size', type=int, default=1024)
@@ -97,25 +101,7 @@ def run_batch_training(config):
 
             st_batch = time.time()
 
-            batch_weight_ph, batch_weight_pt, batch_weight_nh, batch_weight_nt, batch_positive, batch_negative, \
-                batch_relation_ph, batch_relation_pt, batch_relation_nh, batch_relation_nt, batch_neighbor_hp, \
-                batch_neighbor_tp, batch_neighbor_hn, batch_neighbor_tn = batch_data
-            feed_dict = {
-                "neighbor_head_pos": batch_neighbor_hp,
-                "neighbor_tail_pos": batch_neighbor_tp,
-                "neighbor_head_neg": batch_neighbor_hn,
-                "neighbor_tail_neg": batch_neighbor_tn,
-                "input_relation_ph": batch_relation_ph,
-                "input_relation_pt": batch_relation_pt,
-                "input_relation_nh": batch_relation_nh,
-                "input_relation_nt": batch_relation_nt,
-                "input_triplet_pos": batch_positive,
-                "input_triplet_neg": batch_negative,
-                "neighbor_weight_ph": batch_weight_ph,
-                "neighbor_weight_pt": batch_weight_pt,
-                "neighbor_weight_nh": batch_weight_nh,
-                "neighbor_weight_nt": batch_weight_nt
-            }
+            feed_dict = batch_data
 
             loss_batch = model.loss(feed_dict)
 
@@ -148,7 +134,7 @@ def run_batch_training(config):
                 performance = run_link_prediction(config, model, dataset, epoch, logger, is_test=False)
             if performance < best_performance:
                 best_performance = performance
-                torch.save(model.state_dict(), save_path)
+                torch.save(model.state_dict(), "model_trained.pt")
                 time_str = datetime.datetime.now().isoformat()
                 saved_message = '{}: model at epoch {} save in file {}'.format(time_str, epoch, save_path)
                 print(saved_message)
