@@ -99,10 +99,10 @@ def run_link_prediction(args, model, dataset, epoch, logger, is_test=False):
             print_eval_info(acc_head, acc_tail, epoch, cnt_sample, hit10_head, hit10_tail, hit3_head, hit3_tail,
                             logger, rank_head, rank_tail, rec_rank_head, rec_rank_tail)
 
-    print_eval_info(acc_head, acc_tail, epoch, evaluate_size, hit10_head, hit10_tail, hit3_head, hit3_tail, logger,
+    rank_head_mean = print_eval_info(acc_head, acc_tail, epoch, evaluate_size, hit10_head, hit10_tail, hit3_head, hit3_tail, logger,
                     rank_head, rank_tail, rec_rank_head, rec_rank_tail)
 
-    return min_rank_head
+    return rank_head_mean
 
 
 def print_eval_info(acc_head, acc_tail, epoch, evaluate_size, hit10_head, hit10_tail, hit3_head, hit3_tail, logger,
@@ -135,3 +135,5 @@ def print_eval_info(acc_head, acc_tail, epoch, evaluate_size, hit10_head, hit10_
     logger.info(performance_info_head)
     print(performance_info_tail)
     logger.info(performance_info_tail)
+
+    return _rank_head_mean

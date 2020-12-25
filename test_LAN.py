@@ -39,7 +39,7 @@ def parse_arguments():
     parser.add_argument('--log_file_path', type=str, default="train.log")
     # model
     parser.add_argument('--use_relation', type=int, default=1)
-    parser.add_argument('--embedding_dim', '-e', type=int, default=100)
+    parser.add_argument('--embedding_dim', '-e', type=int, default=200)
     parser.add_argument('--max_neighbor', type=int, default=64)
     parser.add_argument('--n_neg', '-n', type=int, default=1)
     parser.add_argument('--aggregate_type', type=str, default='attention')
@@ -49,13 +49,16 @@ def parse_arguments():
     parser.add_argument('--corrupt_mode', type=str, default='both')
     # training
     parser.add_argument('--training_method', type=str, choices=["batch", "meta_incremental"], default="meta_incremental")
-    parser.add_argument('--learning_rate', type=float, default=0.001)
-    parser.add_argument('--num_epoch', type=int, default=1000)
+    parser.add_argument('--learning_rate', type=float, default=0.003)
+    parser.add_argument('--num_epoch', type=int, default=73)
     parser.add_argument('--weight_decay', '-w', type=float, default=0.0)
     parser.add_argument('--batch_size', type=int, default=1024)
-    parser.add_argument('--evaluate_size', type=int, default=250)
+    parser.add_argument('--evaluate_size', type=int, default=100)
     parser.add_argument('--steps_per_display', type=int, default=100)
-    parser.add_argument('--epoch_per_checkpoint', type=int, default=10)
+    parser.add_argument('--epoch_per_checkpoint', type=int, default=50)
+    parser.add_argument("--load_model", type=bool, default=False)
+    # sampling mode
+    parser.add_argument('--sampling_mode', type=str, choices=["random", "structured"], default="structured")
     # meta-incremental training option
     parser.add_argument('--window_size', type=int, default=-1)
     parser.add_argument('--threshold', type=int, default=-1)
@@ -165,21 +168,28 @@ def run_meta_incre_training(config):
 
     # training initialization
     model = LAN(config, dataset.num_training_entity, dataset.num_relation)
-    if os.path.exists("model_trained.pt"):
+    if config.load_model and os.path.exists("model_trained.pt"):
         model.load_state_dict(torch.load("model_trained.pt"))
     model.to(config.device)
     optim = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
+    new_data_generator = dataset.batch_iter_epoch(dataset.triplets_train, batch_size=config.batch_size)
+
     for i in range(config.num_epoch):
-        logger.info("Epoch {} starts".format(i))
+        try:
+            dataset.windows.append(next(new_data_generator))  # add new data during each iteration
+        except StopIteration:
+            pass
+
+        logger.info("Iteration {} starts".format(i))
         trained_model = meta_incremental_train(model, optim, dataset, i, config, logger,
                                                config.batch_size, config.window_size, config.epoch_per_checkpoint)
-
-        if i % config.epoch_per_checkpoint == 0:
-            torch.save(trained_model.state_dict(), "model_trained.pt")
-            model.eval()
-            with torch.no_grad():
-                mr = run_link_prediction(config, model, dataset, i, logger)
+        torch.save(model.state_dict(), "model.pt")
+        # if i % config.epoch_per_checkpoint == 0:
+        #     torch.save(trained_model.state_dict(), "model_trained.pt")
+        #     model.eval()
+        #     with torch.no_grad():
+        #         mr = run_link_prediction(config, model, dataset, i, logger)
 
 
 def set_up_logger(config):

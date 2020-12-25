@@ -14,24 +14,18 @@ def meta_incremental_train(model: torch.nn.Module, optimizer, data_iterator, i: 
     :param i: positive int, the number of training epochs (the outer loop)
     :param window_limit:
     :return: trained model
-    TODO: cpu/cuda
     """
-
-    new_data_generator = data_iterator.batch_iter_epoch(data_iterator.triplets_train, batch_size=batch_size)
     inner_optimizer = torch.optim.Adam(model.parameters(), lr=config.inner_learning_rate)
-    data_iterator.windows = []
+
     mr_opt = float("inf")
     epoch_num = 0
+    stopping_flags = 0
+
     while True:
         model.train()
-        try:
-            data_iterator.windows.append(next(new_data_generator))  # add new data during each iteration
-        except StopIteration:
-            return model
-
         model.zero_grad()
 
-        feed_dict = data_iterator.windows[epoch_num]
+        feed_dict = data_iterator.windows[i]
 
         previous_param = model.state_dict().copy()
         _temporary_update(model, feed_dict, inner_optimizer)
@@ -42,7 +36,8 @@ def meta_incremental_train(model: torch.nn.Module, optimizer, data_iterator, i: 
             """
             model.zero_grad()
             total_loss = 0
-            for window_dict in data_iterator.iter_from_list(epoch_num, window_limit):
+
+            for window_dict in data_iterator.iter_from_list(i, window_limit):
                 loss = model.loss(window_dict)
                 loss.backward()
                 total_loss += loss.item()
@@ -53,19 +48,18 @@ def meta_incremental_train(model: torch.nn.Module, optimizer, data_iterator, i: 
         optimizer.step(closure=_closure)
 
         epoch_num += 1
-        if epoch_num % 100 == 0:
-            print("{} batches completes".format(epoch_num))
+        print("epoch {} completes".format(epoch_num))
 
-        # if epoch_num % eval_interval == 0:
-        #     model.eval()
-        #     with torch.no_grad():
-        #         mr = run_link_prediction(config, model, data_iterator, i, logger)
-            # is_early_stopping = early_stopping(mr, mr_opt, config.threshold)
-            # if is_early_stopping:
-            #     logger.info("Early stopping at inner loop {}".format(epoch_num))
-            #     break
-            # if mr < mr_opt:
-            #     mr_opt = mr
+        if epoch_num % eval_interval == 0:
+            model.eval()
+            with torch.no_grad():
+                mr = run_link_prediction(config, model, data_iterator, i, logger)
+                stopping_flags += early_stopping(mr, mr_opt, config.threshold)
+                if stopping_flags >= 3:
+                    logger.info("Early stopping at inner loop {}".format(epoch_num))
+                    break
+                if mr < mr_opt:
+                    mr_opt = mr
 
     return model
 
@@ -78,4 +72,7 @@ def _temporary_update(model, feed_dict, optimizer):
 
 
 def early_stopping(mr, mr_opt, threshold):
-    return 100 * (mr / mr_opt - 1) > threshold
+    if 100 * (mr / mr_opt - 1) > threshold:
+        return 1
+    else:
+        return 0

@@ -1,8 +1,8 @@
 import os
 import random
-import numpy as np
 from collections import defaultdict
-from meta_incremental_training.incremental_iter import IncrementalIterator
+import numpy as np
+from sklearn.cluster import KMeans
 
 
 class DataSet:
@@ -11,6 +11,7 @@ class DataSet:
         self.max_neighbor = args.max_neighbor
         self.corrupt_mode = args.corrupt_mode
         self.load_data(logger)
+        self.sampling_mode = args.sampling_mode
 
     def load_data(self, logger):
         train_path = os.path.join(self.data_dir, 'train')
@@ -39,7 +40,7 @@ class DataSet:
 
         self.graph_train, self.weight_graph = self.sample_neighbor(graph_train)
 
-        triplets_test = self.doc_to_tensor("test")
+        triplets_test = self.doc_to_tensor(test_path)
 
         self.task = 'link_prediction'
         # construct answer poor for filter results
@@ -316,8 +317,19 @@ class DataSet:
         else:
             return np.asarray(batch_predict_tail), np.asarray(batch_predict_head)
 
+    def prepare_forward(self, entity_id):
+        """
+        Return triplets that include (entity_id, query_rel), where query_rel is every relation in KG.
+        :param entity_id: int the entity id
+        """
+        batch = []
+        batch_size = self.num_relation * 2
+        for i in range(batch_size):
+            batch.append((entity_id, i, 0))
+        yield self.batch_iter_epoch(batch, batch_size=batch_size, num_negative=0, corrupt=False, shuffle=False)
+
     def __read_train_file(self, cnt_entity, cnt_relation, data_path_train, train_entity, triplet_train):
-        with open("train", 'r') as fr:
+        with open(data_path_train, 'r') as fr:
             for line in fr:
                 line = line.strip().split('\t')
                 line = [int(_id) for _id in line]
@@ -335,3 +347,13 @@ class DataSet:
                 if relation >= cnt_relation:
                     cnt_relation = relation + 1
         return cnt_entity, cnt_relation
+
+    # def __do_cluster(self, entity_emb_path):
+    #     entity_embeddings = np.loadtxt(entity_emb_path)
+    #     kmeans = KMeans(n_clusters=self.n_clusters).fit(entity_embeddings)
+    #     labels_lst = kmeans.labels_.tolist()
+    #
+    #     labels = {}
+    #     for entity_id, cluster_id in enumerate(labels_lst):
+    #         labels[entity_id] = cluster_id
+    #     return labels
