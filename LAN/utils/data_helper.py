@@ -1,8 +1,13 @@
 import os
 import random
+import logging
 from collections import defaultdict
+
 import numpy as np
-from sklearn.cluster import KMeans
+import torch
+
+
+logger = logging.getLogger()
 
 
 class DataSet:
@@ -12,6 +17,12 @@ class DataSet:
         self.corrupt_mode = args.corrupt_mode
         self.load_data(logger)
         self.sampling_mode = args.sampling_mode
+
+        # for NSCaching
+        self.head_cache = defaultdict(lambda :set())
+        self.tail_cache = defaultdict(lambda: set())
+        self.head_cache_tensor = {}
+        self.tail_cache_tensor = {}
 
     def load_data(self, logger):
         train_path = os.path.join(self.data_dir, 'train')
@@ -327,6 +338,21 @@ class DataSet:
         for i in range(batch_size):
             batch.append((entity_id, i, 0))
         yield self.batch_iter_epoch(batch, batch_size=batch_size, num_negative=0, corrupt=False, shuffle=False)
+
+    def initialize_cache(self):
+        for h, r, t in self.triplets_train:
+            self.tail_cache[(h, r)].add(t)
+            self.head_cache[(r, t)].add(h)
+
+        for k in self.tail_cache.keys():
+            self.tail_cache_tensor[k] = torch.sparse.FloatTensor(torch.LongTensor([list(self.tail_cache[k])]),
+                                                                torch.ones(len(self.tail_cache[k])), torch.Size([self.num_entity]))
+        for k in self.head_cache.keys():
+            self.head_cache_tensor[k] = torch.sparse.FloatTensor(torch.LongTensor([list(self.head_cache[k])]),
+                                                   torch.ones(len(self.head_cache[k])), torch.Size([self.num_entity]))
+        logger.info("Head cache index size = {}\Tail cache index size = {}".format(len(self.head_cache), len(self.tail_cache))
+        return self.tail_cache_tensor, self.head_cache_tensor
+
 
     def __read_train_file(self, cnt_entity, cnt_relation, data_path_train, train_entity, triplet_train):
         with open(data_path_train, 'r') as fr:
