@@ -42,7 +42,7 @@ class IncrementalIterator:
             Returns the iterator containing windows between [i-w, i-1] or returns the i-th window during i-th iteration.
         This method applies on self.windows.
         :param window_range: w, None or 0 means return only the i-th window. If it's negative, it will iterator over
-        [0, i-1]-th windows
+        [0, i]-th windows
         :param index: i
         """
         if not window_range or window_range == 0:
@@ -52,5 +52,5 @@ class IncrementalIterator:
         else:
             raise ValueError("window_range should be non-negative integer or -1.")
 
-        for i in range(max(index - window_range, 0), index):
+        for i in range(index, max(index - window_range, 0)-1, -1):
             yield self.windows[i]

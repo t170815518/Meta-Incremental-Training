@@ -33,7 +33,7 @@ class Attention(torch.nn.Module):
         self.mask_weight = torch.cat([torch.zeros([self.num_entity, 1]), torch.ones([1, 1])*1e19], 0).\
             to(torch.cuda.current_device())
 
-    def forward(self, input, neighbor, query_relation_id, weight):
+    def forward(self, input, neighbor, query_relation_id, weight, parameters=None):
         input_shape = input.shape
         max_neighbors = input_shape[1]
         hidden_size = input_shape[2]
@@ -41,18 +41,27 @@ class Attention(torch.nn.Module):
         input_relation = neighbor[:, :, 0]
         input_entity = neighbor[:, :, 1]
 
-        transformed = self.mlp_w(input_relation)
-        transformed = self._transform(input, transformed)
+        if parameters:
+            transformed = self.__embedding(input_relation, parameters["encoder.mlp_w.weight"])
+            mask = self.mask_emb[input_entity]
+            query_relation = self.__embedding(query_relation_id, parameters["encoder.query_relation_embedding.weight"])
+            mask_logit = self.mask_weight[input_entity]
+        else:
+            transformed = self.mlp_w(input_relation)
+            mask = self.mask_emb[input_entity]
+            query_relation = self.query_relation_embedding(query_relation_id)
+            mask_logit = self.mask_weight[input_entity]
 
-        mask = self.mask_emb[input_entity]
+        transformed = self._transform(input, transformed)
         transformed = transformed * mask
 
-        query_relation = self.query_relation_embedding(query_relation_id)
         query_relation = query_relation.unsqueeze(1)
         query_relation = query_relation.expand(-1, max_neighbors, -1)
+        if parameters:
+            attention_logit = self.mlp(query_relation, transformed, max_neighbors, parameters)
+        else:
+            attention_logit = self.mlp(query_relation, transformed, max_neighbors)
 
-        attention_logit = self.mlp(query_relation, transformed, max_neighbors)
-        mask_logit = self.mask_weight[input_entity]
         attention_logit = attention_logit - torch.reshape(mask_logit, [-1, max_neighbors])
         attention_weight = F.softmax(attention_logit, dim=1)
         attention_weight = attention_weight + weight[:, :, 0] / (weight[:, :, 1] + 1)
@@ -66,11 +75,22 @@ class Attention(torch.nn.Module):
         normed = F.normalize(r, p=2, dim=2)
         return e - torch.sum(e * normed, 2, keepdim=True) * normed
 
-    def mlp(self, query, transformed, max_len):
+    def mlp(self, query, transformed, max_len, parameters=None):
         """ Neural network attention """
-        hidden = torch.cat([query, transformed], dim=2)
-        hidden = torch.reshape(hidden, [-1, self.embedding_dim * 2])
-        hidden = torch.tanh(torch.matmul(hidden, self.att_w))
-        hidden = torch.reshape(hidden, [-1, max_len, self.embedding_dim * 2])
-        attention_logit = torch.sum(hidden * self.att_v, dim=2)
+        if parameters:
+            hidden = torch.cat([query, transformed], dim=2)
+            hidden = torch.reshape(hidden, [-1, self.embedding_dim * 2])
+            hidden = torch.tanh(torch.matmul(hidden, parameters["encoder.att_w"].cuda()))
+            hidden = torch.reshape(hidden, [-1, max_len, self.embedding_dim * 2])
+            attention_logit = torch.sum(hidden * parameters["encoder.att_v"], dim=2)
+        else:
+            hidden = torch.cat([query, transformed], dim=2)
+            hidden = torch.reshape(hidden, [-1, self.embedding_dim * 2])
+            hidden = torch.tanh(torch.matmul(hidden, self.att_w))
+            hidden = torch.reshape(hidden, [-1, max_len, self.embedding_dim * 2])
+            attention_logit = torch.sum(hidden * self.att_v, dim=2)
         return attention_logit
+
+    def __embedding(self, input, weight):
+        return F.embedding(input, weight.cuda())
+

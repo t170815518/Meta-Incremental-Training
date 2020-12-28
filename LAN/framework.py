@@ -27,7 +27,7 @@ class LAN(torch.nn.Module):
         self.encoder = Attention(self.num_relation, self.num_entity, self.embedding_dim)
         self.decoder = TransE()
 
-    def loss(self, feed_dict):
+    def loss(self, feed_dict, parameters=None):
         for key, value in feed_dict.items():
             try:
                 feed_dict[key] = torch.from_numpy(value).to(device=torch.cuda.current_device())
@@ -52,22 +52,38 @@ class LAN(torch.nn.Module):
         encoder = self.encoder
         decoder = self.decoder
 
-        head_pos_embedded, _ = self.forward(encoder, neighbor_head_pos, input_relation_ph, neighbor_weight_ph)
-        tail_pos_embedded, _ = self.forward(encoder, neighbor_tail_pos, input_relation_pt, neighbor_weight_pt)
-
-        head_neg_embedded, _ = self.forward(encoder, neighbor_head_neg, input_relation_nh, neighbor_weight_nh)
-        tail_neg_embedded, _ = self.forward(encoder, neighbor_tail_neg, input_relation_nt, neighbor_weight_nt)
-
-        emb_relation_pos_out = self.relation_embedding_out(input_relation_ph)
-        emb_relation_neg_out = self.relation_embedding_out(input_relation_nh)
+        if parameters:
+            emb_relation_pos_out = self.__embedding(input_relation_ph, parameters["relation_embedding_out.weight"])
+            emb_relation_neg_out = self.__embedding(input_relation_nh, parameters["relation_embedding_out.weight"])
+            head_pos_embedded, _ = self.forward(encoder, neighbor_head_pos, input_relation_ph, neighbor_weight_ph,
+                                                parameters)
+            tail_pos_embedded, _ = self.forward(encoder, neighbor_tail_pos, input_relation_pt, neighbor_weight_pt,
+                                                parameters)
+            head_neg_embedded, _ = self.forward(encoder, neighbor_head_neg, input_relation_nh, neighbor_weight_nh,
+                                                parameters)
+            tail_neg_embedded, _ = self.forward(encoder, neighbor_tail_neg, input_relation_nt, neighbor_weight_nt,
+                                                parameters)
+        else:
+            emb_relation_pos_out = self.relation_embedding_out(input_relation_ph)
+            emb_relation_neg_out = self.relation_embedding_out(input_relation_nh)
+            head_pos_embedded, _ = self.forward(encoder, neighbor_head_pos, input_relation_ph, neighbor_weight_ph,)
+            tail_pos_embedded, _ = self.forward(encoder, neighbor_tail_pos, input_relation_pt, neighbor_weight_pt)
+            head_neg_embedded, _ = self.forward(encoder, neighbor_head_neg, input_relation_nh, neighbor_weight_nh)
+            tail_neg_embedded, _ = self.forward(encoder, neighbor_tail_neg, input_relation_nt, neighbor_weight_nt)
 
         positive_score = self.decode(decoder, head_pos_embedded, tail_pos_embedded, emb_relation_pos_out)
         negative_score = self.decode(decoder, head_neg_embedded, tail_neg_embedded, emb_relation_neg_out)
 
-        ph_origin_embedded = self.entity_embedding(input_triplet_pos[:, 0])
-        pt_origin_embedded = self.entity_embedding(input_triplet_pos[:, 2])
-        nh_origin_embedded = self.entity_embedding(input_triplet_neg[:, 0])
-        nt_origin_embedded = self.entity_embedding(input_triplet_neg[:, 2])
+        if parameters:
+            ph_origin_embedded = self.__embedding(input_triplet_pos[:, 0], parameters["entity_embedding.weight"])
+            pt_origin_embedded = self.__embedding(input_triplet_pos[:, 2], parameters["entity_embedding.weight"])
+            nh_origin_embedded = self.__embedding(input_triplet_neg[:, 0], parameters["entity_embedding.weight"])
+            nt_origin_embedded = self.__embedding(input_triplet_neg[:, 2], parameters["entity_embedding.weight"])
+        else:
+            ph_origin_embedded = self.entity_embedding(input_triplet_pos[:, 0])
+            pt_origin_embedded = self.entity_embedding(input_triplet_pos[:, 2])
+            nh_origin_embedded = self.entity_embedding(input_triplet_neg[:, 0])
+            nt_origin_embedded = self.entity_embedding(input_triplet_neg[:, 2])
 
         origin_positive_score = self.decode(decoder, ph_origin_embedded, pt_origin_embedded,
                                                    emb_relation_pos_out)
@@ -80,19 +96,25 @@ class LAN(torch.nn.Module):
 
         return loss
 
-    def forward(self, encoder, neighbor_ids, query_relation, weight):
-        """ TODO: check neighbor_ids content """
-        neighbor_embedded = self.entity_embedding(neighbor_ids[:, :, 1])
-        if self.use_relation == 1:
-            return encoder(neighbor_embedded, neighbor_ids, query_relation, weight)
+    def forward(self, encoder, neighbor_ids, query_relation, weight, parameters=None):
+        if parameters:
+            neighbor_embedded = self.__embedding(neighbor_ids[:, :, 1], parameters["entity_embedding.weight"])
+            return encoder(neighbor_embedded, neighbor_ids, query_relation, weight, parameters)
         else:
-            return encoder(neighbor_embedded, neighbor_ids[:, :, 0])
+            neighbor_embedded = self.entity_embedding(neighbor_ids[:, :, 1])
+            return encoder(neighbor_embedded, neighbor_ids, query_relation, weight)
 
     def decode(self, decoder, head_embedded, tail_embedded, relation_embedded):
         score = decoder(head_embedded, tail_embedded, relation_embedded)
         return score
 
-    def get_positive_score(self, feed_dict):
+    def decode_with_id(self, head_id, rel_id, tail_id):
+        head_emb = self.entity_embedding[head_id]
+        tail_emb = self.entity_embedding[tail_id]
+        rel_emb = self.relation_embedding_out[rel_id]
+        return self.decode(self.decoder, head_emb, tail_emb, rel_emb)
+
+    def get_positive_score(self, feed_dict, parameters=None):
         for key, value in feed_dict.items():
             feed_dict[key] = torch.from_numpy(value).to(device=torch.cuda.current_device())
 
@@ -103,8 +125,15 @@ class LAN(torch.nn.Module):
         neighbor_weight_ph = feed_dict['neighbor_weight_ph']
         neighbor_weight_pt = feed_dict['neighbor_weight_pt']
 
-        head_pos_embedded, _ = self.forward(self.encoder, neighbor_head_pos, input_relation_ph, neighbor_weight_ph)
-        tail_pos_embedded, _ = self.forward(self.encoder, neighbor_tail_pos, input_relation_pt, neighbor_weight_pt)
+        head_pos_embedded, _ = self.forward(self.encoder, neighbor_head_pos, input_relation_ph, neighbor_weight_ph, parameters)
+        tail_pos_embedded, _ = self.forward(self.encoder, neighbor_tail_pos, input_relation_pt, neighbor_weight_pt, parameters)
 
-        emb_relation_pos_out = self.relation_embedding_out(input_relation_ph)
+        if parameters:
+            emb_relation_pos_out = self.__embedding(input_relation_ph, parameters["relation_embedding_out.weight"])
+        else:
+            emb_relation_pos_out = self.relation_embedding_out(input_relation_ph)
         return self.decode(self.decoder, head_pos_embedded, tail_pos_embedded, emb_relation_pos_out)
+
+    def __embedding(self, input, weight):
+        return F.embedding(input, weight.cuda())
+
