@@ -1,4 +1,5 @@
 import os
+from random import shuffle
 
 
 def preprocess(file_path):
@@ -11,7 +12,7 @@ def preprocess(file_path):
         translated_data = []
         with open(os.path.join(file_path, file_name), "r") as f:
             for line in f:
-                e1, rel, e2 = line.strip().split("\t")
+                e1, rel, e2 = line.replace(" ", "_").strip().split("\t")
                 if e1 not in entity2id.keys():
                     entity2id[e1] = entity_cnt
                     entity_cnt += 1
@@ -36,5 +37,24 @@ def preprocess(file_path):
                 f.write("{}\t{}\n".format(name, index))
 
 
+def split_train_test(path, export_path, test_ratio=0.2):
+    test_set = []
+    train_set = []
+
+    with open(path, 'r') as f:
+        lines = f.readlines()
+        print(lines)
+        shuffle(lines)
+        test_size = round(test_ratio * len(lines))
+        test_set = lines[:test_size]
+        train_set = lines[test_size:]
+
+    with open(os.path.join(export_path, "train.txt"), 'w+') as f:
+        f.writelines(train_set)
+    with open(os.path.join(export_path, "test.txt"), 'w+') as f:
+        f.writelines(test_set)
+
+
 if __name__ == '__main__':
-    preprocess("data/wiki-300")
+    # split_train_test("data/alicoco/AliCoCo_v0.2.csv", "data/alicoco")
+    preprocess("data/alicoco")
