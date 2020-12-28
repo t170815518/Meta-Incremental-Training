@@ -11,6 +11,7 @@ from LAN.utils.link_prediction import run_link_prediction
 from LAN.framework import LAN
 from meta_incremental_training.incremental_iter import IncrementalIterator
 from meta_incremental_training.meta_incremental_train import meta_incremental_train
+from NSCaching.BernCorrupter import BernCorrupter
 
 
 # inherit IncrementalIterator to use meta-incremental training
@@ -21,6 +22,7 @@ class MetaIncrementalDataset(DataSet, IncrementalIterator):
 
 
 logger = logging.getLogger()
+file_name = str(datetime.datetime.now())
 
 
 def main():
@@ -36,10 +38,10 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Configuration for LAN model")
     parser.add_argument('--data_dir', '-D', type=str, default="data/FB15k-237")
     parser.add_argument('--save_dir', '-S', type=str, default="data/FB15k-237")
-    parser.add_argument('--log_file_path', type=str, default="train.log")
+    parser.add_argument('--log_file_path', type=str, default="{}.log".format(file_name))
     # model
     parser.add_argument('--use_relation', type=int, default=1)
-    parser.add_argument('--embedding_dim', '-e', type=int, default=200)
+    parser.add_argument('--embedding_dim', '-e', type=int, default=100)
     parser.add_argument('--max_neighbor', type=int, default=64)
     parser.add_argument('--n_neg', '-n', type=int, default=1)
     parser.add_argument('--aggregate_type', type=str, default='attention')
@@ -59,10 +61,13 @@ def parse_arguments():
     parser.add_argument("--load_model", type=bool, default=False)
     # sampling mode
     parser.add_argument('--sampling_mode', type=str, choices=["random", "structured"], default="structured")
+    # NSCaching
+    parser.add_argument('--N_1', type=int, default=30)
+    parser.add_argument('--N_2', type=int, default=90)
     # meta-incremental training option
     parser.add_argument('--window_size', type=int, default=-1)
     parser.add_argument('--threshold', type=int, default=-1)
-    parser.add_argument('--inner_learning_rate', type=float, default=0.1)
+    parser.add_argument('--inner_learning_rate', type=float, default=0.05)
     # gpu option
     parser.add_argument('--gpu_fraction', type=float, default=0.2)
     parser.add_argument('--gpu_device', type=str, default='0')
@@ -84,10 +89,16 @@ def run_batch_training(config):
     dataset = DataSet(config, logger)
     logger.info("Loading finish...")
 
+    dataset.cache = [dataset.get_cache()]
+
+    corrputer = BernCorrupter(dataset.triplets_train, dataset.num_entity, dataset.num_relation*2)
+    dataset.corrupter = corrputer
+
     model = LAN(config, dataset.num_training_entity, dataset.num_relation)
     save_path = os.path.join(config.save_dir, "train_model.pt")
     model.to(config.device)
     optim = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+    dataset.model = model
 
     # training
     num_batch = dataset.num_sample // config.batch_size
@@ -184,7 +195,7 @@ def run_meta_incre_training(config):
         logger.info("Iteration {} starts".format(i))
         trained_model = meta_incremental_train(model, optim, dataset, i, config, logger,
                                                config.batch_size, config.window_size, config.epoch_per_checkpoint)
-        torch.save(model.state_dict(), "model.pt")
+        torch.save(model.state_dict(), "{}.pt".format(file_name))
         # if i % config.epoch_per_checkpoint == 0:
         #     torch.save(trained_model.state_dict(), "model_trained.pt")
         #     model.eval()

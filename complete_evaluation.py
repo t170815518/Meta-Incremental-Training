@@ -40,13 +40,21 @@ def set_up_logger():
 if __name__ == '__main__':
     # simple config information, which should match with the train config
     config = SimpleNamespace()
-    config.data_dir = ""
+    config.data_dir = "data/FB15k-237"
     config.max_neighbor = 64
     config.use_relation = 1
     config.margin = 1.0
     config.embedding_dim = 100
     config.corrupt_mode = "both"
     config.evaluate_size = 0
+    config.N_1 = 60
+    config.N_2 = 30
+    config.n_neg = 1
+    config.learning_rate = 0.001
+    config.aggregate_type = "LAN"
+    config.score_function = "TransE"
+    config.loss_function = "TransE"
+    config.weight_decay = 0
 
-    evaluate(LAN, "model_trained.pt", config)
+    evaluate(LAN, "model.pt", config)
 
