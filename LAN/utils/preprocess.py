@@ -1,8 +1,9 @@
 import os
 from random import shuffle
+import json
 
 
-def preprocess(file_path):
+def translate_file_to_id(file_path):
     entity2id = {}
     rel2id = {}
     entity_cnt = 0
@@ -49,12 +50,26 @@ def split_train_test(path, export_path, test_ratio=0.2):
         test_set = lines[:test_size]
         train_set = lines[test_size:]
 
-    with open(os.path.join(export_path, "train.txt"), 'w+') as f:
+    with open(os.path.join(export_path, "train"), 'w+') as f:
         f.writelines(train_set)
-    with open(os.path.join(export_path, "test.txt"), 'w+') as f:
+    with open(os.path.join(export_path, "test"), 'w+') as f:
         f.writelines(test_set)
+
+
+def get_additional_information(entity2id_file_path, train_file_path):
+    info_dict = {}
+    with open(entity2id_file_path, 'r') as f:
+        for line in f.readlines():
+            _, entity_id = line.strip().split('\t')
+            dict[int(entity_id)] = {"triplets_as_head": []}
+    with open(train_file_path, 'r') as f:
+        for line in f.readlines():
+            head, rel, tail = tuple([int(x) for x in line.strip().split('\t')])  # convert string to integer
+            dict[head]["triplets_as_head"].append([head, rel, tail])
+    with open("graph_info.json", "w+") as f:
+        json.dumps(info_dict, f)
 
 
 if __name__ == '__main__':
     # split_train_test("data/alicoco/AliCoCo_v0.2.csv", "data/alicoco")
-    preprocess("data/alicoco")
+    translate_file_to_id("data/alicoco")

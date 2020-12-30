@@ -19,6 +19,9 @@ class DataSet:
         self.N_2 = args.N_2
         self.load_data(logger)
 
+        # for sampling
+        self.sampling_method = args.sampling_method
+
         # for NSCaching
         self.head_cache = defaultdict(lambda: set())
         self.tail_cache = defaultdict(lambda: set())
@@ -209,19 +212,22 @@ class DataSet:
 
     def batch_iter_epoch(self, data, batch_size, num_negative=1, corrupt=True, shuffle=True, is_use_cache=False):
         """ Returns prepared information in np.ndarray to feed into the model.
+        FIXME: evaluation
         """
         data_size = len(data)
+
+        if shuffle:
+            if self.sampling_method == "random":
+                yield from self.random_iterate(batch_size, corrupt, data, data_size, is_use_cache, num_negative)
+        else:
+            shuffled_indices = np.arange(data_size)
+
+    def random_iterate(self, batch_size, corrupt, data, data_size, is_use_cache, num_negative):
+        shuffled_indices = np.random.permutation(np.arange(data_size))
         if data_size % batch_size == 0:
             num_batches_per_epoch = int(data_size / batch_size)
         else:
             num_batches_per_epoch = int(data_size / batch_size) + 1
-
-        # Shuffle the data at each epoch
-        if shuffle:
-            shuffled_indices = np.random.permutation(np.arange(data_size))
-        else:
-            shuffled_indices = np.arange(data_size)
-
         for batch_num in range(num_batches_per_epoch):
             start_index = batch_num * batch_size
             end_index = min((batch_num + 1) * batch_size, data_size)
@@ -231,111 +237,123 @@ class DataSet:
             try:
                 h_idx = self.head_cache_id[batch_indices]
                 t_idx = self.tail_cache_id[batch_indices]
-            except TypeError:  # when cache is not used 
+            except TypeError:  # when cache is not used
                 pass
-            neighbor_head_pos = self.graph_train[batch_positive[:, 0]]  # [:, :, 0:2]
-            neighbor_tail_pos = self.graph_train[batch_positive[:, 2]]  # [:, :, 0:2]
-            batch_relation_ph = np.asarray(batch_positive[:, 1])
-            batch_relation_pt = batch_relation_ph + self.num_relation
-            neighbor_imply_ph = self.weight_graph[batch_positive[:, 0]].reshape(-1, self.max_neighbor, 1)
-            neighbor_imply_pt = self.weight_graph[batch_positive[:, 2]].reshape(-1, self.max_neighbor, 1)
-            query_weight_ph = self.co_relation[batch_relation_ph]
-            query_weight_pt = self.co_relation[batch_relation_pt]
-            batch_weight_ph = query_weight_ph[np.arange(real_batch_num).repeat(self.max_neighbor),
-                                              neighbor_head_pos[:, :, 0].reshape(-1)].reshape(real_batch_num,
-                                                                                              self.max_neighbor, 1)
-            batch_weight_pt = query_weight_pt[np.arange(real_batch_num).repeat(self.max_neighbor),
-                                              neighbor_tail_pos[:, :, 0].reshape(-1)].reshape(real_batch_num,
-                                                                                              self.max_neighbor, 1)
-            batch_weight_ph = np.concatenate((batch_weight_ph, neighbor_imply_ph), axis=2)
-            batch_weight_pt = np.concatenate((batch_weight_pt, neighbor_imply_pt), axis=2)
 
-            if corrupt:
-                if is_use_cache:
-                    h_rand, t_rand = self.negative_sampling(batch_positive, h_idx, t_idx)
-                    prob = self.corrupter.bern_prob[batch_positive[:, 1]]
-                    selection = torch.bernoulli(prob).type(torch.ByteTensor)
+            yield from self.prepare_feed_dict(batch_positive, corrupt, is_use_cache, num_negative, real_batch_num,
+                                              h_idx, t_idx)
 
-                    n_h = torch.from_numpy(batch_positive[:, 0]).cuda()
-                    n_t = torch.from_numpy(batch_positive[:, 2]).cuda()
-                    n_r = torch.from_numpy(batch_positive[:, 1]).cuda()
+    def prepare_feed_dict(self, batch_positive, corrupt, is_use_cache, num_negative, real_batch_num, h_idx, t_idx):
+        """
 
-                    if n_h.size() != h_rand.size():
-                        n_h = n_h.unsqueeze(1).expand_as(h_rand)
-                        n_t = n_t.unsqueeze(1).expand_as(h_rand)
-                        n_r = n_r.unsqueeze(1).expand_as(h_rand)
-                        h = h.unsqueeze(1)
-                        r = r.unsqueeze(1)
-                        t = t.unsqueeze(1)
+        :param batch_positive:
+        :param corrupt:
+        :param is_use_cache:
+        :param num_negative:
+        :param real_batch_num: int, the actual size of the batch in the feed_dict
+        :param h_idx:
+        :param t_idx:
+        :return:
+        """
+        neighbor_head_pos = self.graph_train[batch_positive[:, 0]]  # [:, :, 0:2]
+        neighbor_tail_pos = self.graph_train[batch_positive[:, 2]]  # [:, :, 0:2]
+        batch_relation_ph = np.asarray(batch_positive[:, 1])
+        batch_relation_pt = batch_relation_ph + self.num_relation
+        neighbor_imply_ph = self.weight_graph[batch_positive[:, 0]].reshape(-1, self.max_neighbor, 1)
+        neighbor_imply_pt = self.weight_graph[batch_positive[:, 2]].reshape(-1, self.max_neighbor, 1)
+        query_weight_ph = self.co_relation[batch_relation_ph]
+        query_weight_pt = self.co_relation[batch_relation_pt]
+        batch_weight_ph = query_weight_ph[np.arange(real_batch_num).repeat(self.max_neighbor),
+                                          neighbor_head_pos[:, :, 0].reshape(-1)].reshape(real_batch_num,
+                                                                                          self.max_neighbor, 1)
+        batch_weight_pt = query_weight_pt[np.arange(real_batch_num).repeat(self.max_neighbor),
+                                          neighbor_tail_pos[:, :, 0].reshape(-1)].reshape(real_batch_num,
+                                                                                          self.max_neighbor, 1)
+        batch_weight_ph = np.concatenate((batch_weight_ph, neighbor_imply_ph), axis=2)
+        batch_weight_pt = np.concatenate((batch_weight_pt, neighbor_imply_pt), axis=2)
+        if corrupt:
+            if is_use_cache:
+                h_rand, t_rand = self.negative_sampling(batch_positive, h_idx, t_idx)
+                prob = self.corrupter.bern_prob[batch_positive[:, 1]]
+                selection = torch.bernoulli(prob).type(torch.ByteTensor)
 
-                    n_h[selection] = h_rand[selection]
-                    n_t[~selection] = t_rand[~selection]
+                n_h = torch.from_numpy(batch_positive[:, 0]).cuda()
+                n_t = torch.from_numpy(batch_positive[:, 2]).cuda()
+                n_r = torch.from_numpy(batch_positive[:, 1]).cuda()
 
-                    n_h = n_h.cpu().numpy().tolist()
-                    n_t = n_t.cpu().numpy().tolist()
-                    n_r = n_r.cpu().numpy().tolist()
-                    batch_negative = [(h, r, t) for h, r, t in zip(n_h, n_r, n_t)]
+                if n_h.size() != h_rand.size():
+                    n_h = n_h.unsqueeze(1).expand_as(h_rand)
+                    n_t = n_t.unsqueeze(1).expand_as(h_rand)
+                    n_r = n_r.unsqueeze(1).expand_as(h_rand)
 
-                    self.update_cache(batch_positive, h_idx, t_idx)
-                else:
-                    batch_negative = []
-                    for triplet in batch_positive:
-                        id_head_corrupted = triplet[0]
-                        id_tail_corrupted = triplet[2]
-                        id_relation = triplet[1]
+                n_h[selection] = h_rand[selection]
+                n_t[~selection] = t_rand[~selection]
 
-                        for n_neg in range(num_negative):
-                            if self.corrupt_mode == 'both':
-                                head_prob = np.random.binomial(1, 0.5)
-                                if head_prob:
-                                    id_head_corrupted = random.sample(range(self.num_training_entity), 1)[0]
-                                else:
-                                    id_tail_corrupted = random.sample(range(self.num_training_entity), 1)[0]
-                            else:
-                                if 'tail' in self.predict_mode:
-                                    id_head_corrupted = random.sample(range(self.num_training_entity), 1)[0]
-                                elif 'head' in self.predict_mode:
-                                    id_tail_corrupted = random.sample(range(self.num_training_entity), 1)[0]
-                            batch_negative.append([id_head_corrupted, triplet[1], id_tail_corrupted])
+                n_h = n_h.cpu().numpy().tolist()
+                n_t = n_t.cpu().numpy().tolist()
+                n_r = n_r.cpu().numpy().tolist()
+                batch_negative = [(h, r, t) for h, r, t in zip(n_h, n_r, n_t)]
 
-                batch_negative = np.asarray(batch_negative)
-                neighbor_head_neg = self.graph_train[batch_negative[:, 0]]
-                neighbor_tail_neg = self.graph_train[batch_negative[:, 2]]
-                neighbor_imply_nh = self.weight_graph[batch_negative[:, 0]].reshape(-1, self.max_neighbor, 1)
-                neighbor_imply_nt = self.weight_graph[batch_negative[:, 2]].reshape(-1, self.max_neighbor, 1)
-
-                batch_relation_nh = batch_negative[:, 1]
-                batch_relation_nt = batch_relation_nh + self.num_relation
-                query_weight_nh = self.co_relation[batch_relation_nh]
-                query_weight_nt = self.co_relation[batch_relation_nt]
-                batch_weight_nh = query_weight_nh[
-                    np.arange(real_batch_num).repeat(self.max_neighbor), neighbor_head_neg[:, :, 0].reshape(
-                        -1)].reshape(real_batch_num, self.max_neighbor, 1)
-                batch_weight_nt = query_weight_nt[
-                    np.arange(real_batch_num).repeat(self.max_neighbor), neighbor_tail_neg[:, :, 0].reshape(
-                        -1)].reshape(real_batch_num, self.max_neighbor, 1)
-                batch_weight_nh = np.concatenate((batch_weight_nh, neighbor_imply_nh), axis=2)
-                batch_weight_nt = np.concatenate((batch_weight_nt, neighbor_imply_nt), axis=2)
-                feed_dict = {
-                    "neighbor_head_pos": neighbor_head_pos,
-                    "neighbor_tail_pos": neighbor_tail_pos,
-                    "neighbor_head_neg": neighbor_head_neg,
-                    "neighbor_tail_neg": neighbor_tail_neg,
-                    "input_relation_ph": batch_relation_ph,
-                    "input_relation_pt": batch_relation_pt,
-                    "input_relation_nh": batch_relation_nh,
-                    "input_relation_nt": batch_relation_nt,
-                    "input_triplet_pos": batch_positive,
-                    "input_triplet_neg": batch_negative,
-                    "neighbor_weight_ph": batch_weight_ph,
-                    "neighbor_weight_pt": batch_weight_pt,
-                    "neighbor_weight_nh": batch_weight_nh,
-                    "neighbor_weight_nt": batch_weight_nt
-                }
-                yield feed_dict
+                self.update_cache(batch_positive, h_idx, t_idx)
             else:
-                yield [batch_weight_ph, batch_weight_pt,
-                       batch_positive, batch_relation_pt, neighbor_head_pos, neighbor_tail_pos]
+                batch_negative = []
+                for triplet in batch_positive:
+                    id_head_corrupted = triplet[0]
+                    id_tail_corrupted = triplet[2]
+                    id_relation = triplet[1]
+
+                    for n_neg in range(num_negative):
+                        if self.corrupt_mode == 'both':
+                            head_prob = np.random.binomial(1, 0.5)
+                            if head_prob:
+                                id_head_corrupted = random.sample(range(self.num_training_entity), 1)[0]
+                            else:
+                                id_tail_corrupted = random.sample(range(self.num_training_entity), 1)[0]
+                        else:
+                            if 'tail' in self.predict_mode:
+                                id_head_corrupted = random.sample(range(self.num_training_entity), 1)[0]
+                            elif 'head' in self.predict_mode:
+                                id_tail_corrupted = random.sample(range(self.num_training_entity), 1)[0]
+                        batch_negative.append([id_head_corrupted, triplet[1], id_tail_corrupted])
+
+            batch_negative = np.asarray(batch_negative)
+            neighbor_head_neg = self.graph_train[batch_negative[:, 0]]
+            neighbor_tail_neg = self.graph_train[batch_negative[:, 2]]
+            neighbor_imply_nh = self.weight_graph[batch_negative[:, 0]].reshape(-1, self.max_neighbor, 1)
+            neighbor_imply_nt = self.weight_graph[batch_negative[:, 2]].reshape(-1, self.max_neighbor, 1)
+
+            batch_relation_nh = batch_negative[:, 1]
+            batch_relation_nt = batch_relation_nh + self.num_relation
+            query_weight_nh = self.co_relation[batch_relation_nh]
+            query_weight_nt = self.co_relation[batch_relation_nt]
+            batch_weight_nh = query_weight_nh[
+                np.arange(real_batch_num).repeat(self.max_neighbor), neighbor_head_neg[:, :, 0].reshape(
+                    -1)].reshape(real_batch_num, self.max_neighbor, 1)
+            batch_weight_nt = query_weight_nt[
+                np.arange(real_batch_num).repeat(self.max_neighbor), neighbor_tail_neg[:, :, 0].reshape(
+                    -1)].reshape(real_batch_num, self.max_neighbor, 1)
+            batch_weight_nh = np.concatenate((batch_weight_nh, neighbor_imply_nh), axis=2)
+            batch_weight_nt = np.concatenate((batch_weight_nt, neighbor_imply_nt), axis=2)
+            feed_dict = {
+                "neighbor_head_pos": neighbor_head_pos,
+                "neighbor_tail_pos": neighbor_tail_pos,
+                "neighbor_head_neg": neighbor_head_neg,
+                "neighbor_tail_neg": neighbor_tail_neg,
+                "input_relation_ph": batch_relation_ph,
+                "input_relation_pt": batch_relation_pt,
+                "input_relation_nh": batch_relation_nh,
+                "input_relation_nt": batch_relation_nt,
+                "input_triplet_pos": batch_positive,
+                "input_triplet_neg": batch_negative,
+                "neighbor_weight_ph": batch_weight_ph,
+                "neighbor_weight_pt": batch_weight_pt,
+                "neighbor_weight_nh": batch_weight_nh,
+                "neighbor_weight_nt": batch_weight_nt
+            }
+            yield feed_dict
+        else:
+            yield [batch_weight_ph, batch_weight_pt,
+                   batch_positive, batch_relation_pt, neighbor_head_pos, neighbor_tail_pos]
 
     def next_sample_eval(self, triplet_evaluate, is_test):
         if is_test:
@@ -372,6 +390,12 @@ class DataSet:
             return np.asarray(batch_predict_head)
         else:
             return np.asarray(batch_predict_tail), np.asarray(batch_predict_head)
+
+    def prepare_batch_for_uncertainty(self, head, rel, eval_size):
+        tails = random.sample(range(0, self.num_entity), eval_size)
+        eval_batch = [(head, rel, t) for t in tails]
+        return list(self.prepare_feed_dict(eval_batch, corrupt=False, is_use_cache=False, num_negative=0, real_batch_num=eval_size,
+                               h_idx=None, t_idx=None))[0]  # assume only 1 element in the list
 
     def prepare_forward(self, entity_id):
         """
