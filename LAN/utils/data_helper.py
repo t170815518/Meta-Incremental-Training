@@ -5,6 +5,7 @@ from collections import defaultdict
 
 import numpy as np
 import torch
+from meta_incremental_training.structured_uncertainty_sampler import StructuredUncertaintySampler
 
 logger = logging.getLogger()
 
@@ -20,7 +21,7 @@ class DataSet:
         self.load_data(logger)
 
         # for sampling
-        self.sampling_method = args.sampling_method
+        self.sampling_mode = args.sampling_mode
 
         # for NSCaching
         self.head_cache = defaultdict(lambda: set())
@@ -211,23 +212,30 @@ class DataSet:
         return triplet_tensor
 
     def batch_iter_epoch(self, data, batch_size, num_negative=1, corrupt=True, shuffle=True, is_use_cache=False):
-        """ Returns prepared information in np.ndarray to feed into the model.
-        FIXME: evaluation
+        """
+        Returns prepared information in np.ndarray to feed into the model.
+        :param batch_size: int, the actual size of feed_dict to be directly fed into the model
         """
         data_size = len(data)
 
-        if shuffle:
-            if self.sampling_method == "random":
-                yield from self.random_iterate(batch_size, corrupt, data, data_size, is_use_cache, num_negative)
-        else:
+        if shuffle:  # for random sampling
+            shuffled_indices = np.random.permutation(np.arange(data_size))
+        else:  # this is for evaluation
             shuffled_indices = np.arange(data_size)
 
-    def random_iterate(self, batch_size, corrupt, data, data_size, is_use_cache, num_negative):
-        shuffled_indices = np.random.permutation(np.arange(data_size))
+        yield from self.split_big_batch(shuffled_indices, batch_size, corrupt,
+                                        data, data_size, is_use_cache, num_negative)
+
+    def split_big_batch(self, shuffled_indices, batch_size, corrupt, data, data_size, is_use_cache, num_negative):
+        """ Splits the big batch into smaller batches.
+        :param batch_size: int, the actual size of feed_dict to be directly fed into the model
+        :param data_size: int, the actual size of all data to split
+        """
         if data_size % batch_size == 0:
             num_batches_per_epoch = int(data_size / batch_size)
         else:
             num_batches_per_epoch = int(data_size / batch_size) + 1
+
         for batch_num in range(num_batches_per_epoch):
             start_index = batch_num * batch_size
             end_index = min((batch_num + 1) * batch_size, data_size)
@@ -237,15 +245,16 @@ class DataSet:
             try:
                 h_idx = self.head_cache_id[batch_indices]
                 t_idx = self.tail_cache_id[batch_indices]
-            except TypeError:  # when cache is not used
-                pass
+            except TypeError:  # when cache is not used, the variables are just place-holders
+                h_idx = None
+                t_idx = None
 
-            yield from self.prepare_feed_dict(batch_positive, corrupt, is_use_cache, num_negative, real_batch_num,
+            yield self.prepare_feed_dict(batch_positive, corrupt, is_use_cache, num_negative, real_batch_num,
                                               h_idx, t_idx)
 
     def prepare_feed_dict(self, batch_positive, corrupt, is_use_cache, num_negative, real_batch_num, h_idx, t_idx):
         """
-
+        Prepares the feed_dict of the single batch to be directly fed into the model.
         :param batch_positive:
         :param corrupt:
         :param is_use_cache:
@@ -253,7 +262,7 @@ class DataSet:
         :param real_batch_num: int, the actual size of the batch in the feed_dict
         :param h_idx:
         :param t_idx:
-        :return:
+        :return: the generator
         """
         neighbor_head_pos = self.graph_train[batch_positive[:, 0]]  # [:, :, 0:2]
         neighbor_tail_pos = self.graph_train[batch_positive[:, 2]]  # [:, :, 0:2]
@@ -350,17 +359,17 @@ class DataSet:
                 "neighbor_weight_nh": batch_weight_nh,
                 "neighbor_weight_nt": batch_weight_nt
             }
-            yield feed_dict
+            return feed_dict
         else:
-            yield [batch_weight_ph, batch_weight_pt,
+            return [batch_weight_ph, batch_weight_pt,
                    batch_positive, batch_relation_pt, neighbor_head_pos, neighbor_tail_pos]
 
     def next_sample_eval(self, triplet_evaluate, is_test):
-        if is_test:
-            answer_pool = self.triplets_true_pool
-        else:
-            answer_pool = self.triplets_train_pool
-
+        # if is_test:
+        #     answer_pool = self.triplets_true_pool
+        # else:
+        #     answer_pool = self.triplets_train_pool
+        answer_pool = self.triplets_true_pool
         # construct two batches for head and tail prediction
         batch_predict_head = [triplet_evaluate]
         # replacing head
@@ -394,8 +403,8 @@ class DataSet:
     def prepare_batch_for_uncertainty(self, head, rel, eval_size):
         tails = random.sample(range(0, self.num_entity), eval_size)
         eval_batch = [(head, rel, t) for t in tails]
-        return list(self.prepare_feed_dict(eval_batch, corrupt=False, is_use_cache=False, num_negative=0, real_batch_num=eval_size,
-                               h_idx=None, t_idx=None))[0]  # assume only 1 element in the list
+        return self.prepare_feed_dict(eval_batch, corrupt=False, is_use_cache=False, num_negative=0, real_batch_num=eval_size,
+                               h_idx=None, t_idx=None)
 
     def prepare_forward(self, entity_id):
         """
@@ -535,12 +544,8 @@ class DataSet:
                     cnt_relation = relation + 1
         return cnt_entity, cnt_relation
 
-    # def __do_cluster(self, entity_emb_path):
-    #     entity_embeddings = np.loadtxt(entity_emb_path)
-    #     kmeans = KMeans(n_clusters=self.n_clusters).fit(entity_embeddings)
-    #     labels_lst = kmeans.labels_.tolist()
-    #
-    #     labels = {}
-    #     for entity_id, cluster_id in enumerate(labels_lst):
-    #         labels[entity_id] = cluster_id
-    #     return labels
+    def iterate_with_sampling(self, sampling_mode, args, model):
+        if sampling_mode == "structured-uncertainty":
+            iterator = StructuredUncertaintySampler(self.data_dir, args, self, self.num_entity).iterate(model)
+
+        return iterator

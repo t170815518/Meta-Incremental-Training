@@ -51,8 +51,8 @@ def parse_arguments():
     parser.add_argument('--corrupt_mode', type=str, default='both')
     # training
     parser.add_argument('--training_method', type=str, choices=["batch", "meta_incremental"], default="meta_incremental")
-    parser.add_argument('--learning_rate', type=float, default=0.003)
-    parser.add_argument('--num_epoch', type=int, default=73)
+    parser.add_argument('--learning_rate', type=float, default=0.001)
+    parser.add_argument('--num_epoch', type=int, default=100)
     parser.add_argument('--weight_decay', '-w', type=float, default=0.0)
     parser.add_argument('--batch_size', type=int, default=1024)
     parser.add_argument('--evaluate_size', type=int, default=100)
@@ -60,8 +60,12 @@ def parse_arguments():
     parser.add_argument('--epoch_per_checkpoint', type=int, default=50)
     parser.add_argument("--load_model", type=bool, default=False)
     # sampling mode
-    parser.add_argument('--sampling_mode', type=str, choices=["random", "structured"], default="structured")
+    parser.add_argument('--sampling_mode', type=str, choices=["random", "structured-uncertainty"],
+                        default="structured-uncertainty")
+    parser.add_argument('--n_clusters', type=int, default=1000)
+    parser.add_argument('--uncertainty_eval_size', type=int, default=300)
     # NSCaching
+    parser.add_argument("--is_use_cache", type=bool, default=False)
     parser.add_argument('--N_1', type=int, default=30)
     parser.add_argument('--N_2', type=int, default=90)
     # meta-incremental training option
@@ -183,8 +187,10 @@ def run_meta_incre_training(config):
         model.load_state_dict(torch.load("model_trained.pt"))
     model.to(config.device)
     optim = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
-
-    new_data_generator = dataset.batch_iter_epoch(dataset.triplets_train, batch_size=config.batch_size)
+    if config.sampling_mode == "random":
+        new_data_generator = dataset.batch_iter_epoch(dataset.triplets_train, batch_size=config.batch_size)
+    elif config.sampling_mode == "structured-uncertainty":
+        new_data_generator = dataset.iterate_with_sampling(config.sampling_mode, config, model)
 
     for i in range(config.num_epoch):
         try:
