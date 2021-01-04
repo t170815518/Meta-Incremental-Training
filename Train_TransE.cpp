@@ -270,9 +270,9 @@ void prepare()
     {
         string s1=buf;
         fscanf(f_kb,"%s",buf);
-        string s2=buf;
-        fscanf(f_kb,"%s",buf);
         string s3=buf;
+        fscanf(f_kb,"%s",buf);
+        string s2=buf;
         if (entity2id.count(s1)==0)
         {
             cout<<"miss entity:"<<s1<<endl;
@@ -283,9 +283,9 @@ void prepare()
         }
         if (relation2id.count(s3)==0)
         {
-//            relation2id[s3] = relation_num;
-//            relation_num++;
-            cout<<"miss relation:"<< s3 << endl;
+            relation2id[s3] = relation_num;
+            relation_num++;
+            cout << "miss relation:"<< s3 << endl;
         }
         left_entity[relation2id[s3]][entity2id[s1]]++;
         right_entity[relation2id[s3]][entity2id[s2]]++;
